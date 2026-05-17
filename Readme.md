@@ -1,161 +1,92 @@
-# Book Shop — CI/CD Pipeline Project
+# Book Shop - Phase 2 CI/CD Pipelines
 
-**Mohammad Awad — 20210577**
-**Laith Alzubi — 20231224**
+**Mohammad Awad - 20210577**
+**Laith Alzubi - 20231224**
 
----
-
-## Project Overview
-
-A Django + PostgreSQL containerized web application with three automated CI/CD pipelines deployed to AWS EC2. The app is a book shop built with Django 4.0.4.
-
-- **Source repository:** [laithalzubi05/book-shop-mohammad-laith](https://github.com/laithalzubi05/book-shop-mohammad-laith)
-- **Docker Hub image:** `mhmdawad/book-shop`
-- **Deployment target:** AWS EC2 (Ubuntu 24.04)
+Group of 2
 
 ---
 
-## Architecture
+## About
 
-```
-Django App (port 8000 internal)
-    └── PostgreSQL 15 (pgdata volume)
-```
+This is Phase 2 of the book shop project. We added three CI/CD pipelines using GitHub Actions. Each pipeline runs on a different branch and deploys to the same EC2 instance but on different ports so they don't conflict with each other.
 
-Two-tier architecture: Django backend + PostgreSQL database, orchestrated with Docker Compose. No reverse proxy (group of 2).
+We made a separate repo for Phase 2 to keep our Phase 1 repo untouched.
 
 ---
 
-## Branch Strategy
+## The Three Branches
 
-| Branch | Pipeline Type | Port | Docker Tag |
-|--------|--------------|------|------------|
-| `dev`  | Artifact-First | 8001 | `dev-<sha>` |
-| `test` | Image-First    | 8002 | `<sha>` |
-| `prod` | Promotion-Only | 8000 | `vars.IMAGE_VERSION` |
+### dev - Artifact First
 
----
+Triggers on every push to dev.
 
-## Pipeline 1 — Dev (Artifact-First)
+What it does:
+1. Installs dependencies and packages the source code into a .tar.gz file (named with the commit sha so each build gets its own file)
+2. Commits that file to the artifacts/ folder in the repo - this is the audit trail
+3. Builds the Docker image from the artifact (the Dockerfile extracts the archive, it does NOT use the source directly)
+4. Pushes the image to Docker Hub tagged as `dev-<sha>`
+5. SSHs into EC2 and runs the containers
 
-**Trigger:** push to `dev` branch
+Port: **8001**
 
-**Steps:**
-1. Checkout source code
-2. Set up Python 3.11
-3. Install Python dependencies
-4. Sync with remote dev branch (git pull)
-5. Package source into `artifacts/app-<sha>.tar.gz` and commit to repo
-6. Copy artifact into Docker build context
-7. Build Docker image `FROM artifact.tar.gz` — no raw source in image
-8. Push image to Docker Hub as `mhmdawad/book-shop:dev-<sha>`
-9. SSH to EC2 → write `.env` → deploy with `docker compose -p dev up -d` on port **8001**
+The reason we build from the artifact and not from source is because this is the artifact-first philosophy - what gets packaged is exactly what gets deployed.
 
-**Key concept:** The Docker image is built from a packaged artifact (tar.gz), not directly from source. The artifact is version-controlled in `artifacts/`.
+### test - Image First
 
----
+Triggers on push to test (we merge from dev).
 
-## Pipeline 2 — Test (Image-First)
+What it does:
+1. Builds a fresh artifact from source (does not reuse the one from dev)
+2. Builds the Docker image from it
+3. Pushes to Docker Hub tagged as `<sha>` (no prefix, since this is the version that will go to prod)
+4. SSHs into EC2 and deploys by pulling from Docker Hub
 
-**Trigger:** push to `test` branch
+Port: **8002**
 
-**Steps:**
-1. Checkout source code
-2. Set up Python 3.11
-3. Install Python dependencies
-4. Build a fresh artifact from source (not reused from dev)
-5. Copy artifact into Docker build context
-6. Build Docker image and push to Docker Hub as `mhmdawad/book-shop:<sha>`
-7. SSH to EC2 → pull image → deploy with `docker compose -p test up -d` on port **8002**
+We are a group of 2 so we push to Docker Hub (not ECR).
 
-**Key concept:** The image is built fresh from source (not promoted from dev), then pushed to Docker Hub and pulled on EC2. No artifact is committed to the repo.
+### prod - Promotion Only
+
+Triggers on push/merge to prod.
+
+This pipeline never builds anything. It reads the IMAGE_VERSION variable from GitHub repository settings (Settings → Secrets and variables → Actions → Variables) and pulls that exact image from Docker Hub to deploy.
+
+To release a new version to prod we update IMAGE_VERSION to the sha we want, then push to prod.
+
+Port: **8000**
 
 ---
 
-## Pipeline 3 — Prod (Promotion-Only)
+## How They Coexist on One EC2
 
-**Trigger:** push to `prod` branch
+All three run on the same EC2 without conflicts because:
 
-**Steps:**
-1. Read `IMAGE_VERSION` from GitHub repository variable (no build)
-2. SSH to EC2 → pull existing image `mhmdawad/book-shop:<IMAGE_VERSION>` → deploy with `docker compose -p prod up -d` on port **8000**
-
-**Key concept:** Zero Docker builds in production. An already-tested image is promoted by setting `vars.IMAGE_VERSION` in GitHub to the tested SHA, then pushing to prod.
-
----
-
-## Environment Variables (GitHub Secrets & Variables)
-
-### Secrets
-| Name | Description |
-|------|-------------|
-| `DOCKERHUB_USERNAME` | Docker Hub username (`mhmdawad`) |
-| `DOCKERHUB_TOKEN` | Docker Hub access token |
-| `EC2_SSH_KEY` | Private key (.pem) for EC2 SSH access |
-| `POSTGRES_DB` | PostgreSQL database name |
-| `POSTGRES_USER` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | PostgreSQL password |
-| `SECRET_KEY` | Django secret key |
-
-### Variables
-| Name | Description |
-|------|-------------|
-| `EC2_HOST` | EC2 public IP address |
-| `IMAGE_VERSION` | Image tag to deploy to prod (set manually before prod push) |
+- Different compose project names: `-p dev`, `-p test`, `-p prod`
+- Different host ports: 8001, 8002, 8000
+- Separate postgres volumes for each: pgdata_dev, pgdata_test, pgdata_prod
+- Each environment writes its own .env file to a separate folder (/app/dev, /app/test, /app/prod)
 
 ---
 
-## Docker Compose Project Isolation
+## Secrets and Variables
 
-Each environment runs as a separate Docker Compose project on the same EC2 instance:
+Variables (not sensitive):
+- `EC2_HOST` - the IP of the EC2 instance
+- `IMAGE_VERSION` - the image tag to pull in prod
 
-```
-docker compose -p dev  up -d   # port 8001
-docker compose -p test up -d   # port 8002
-docker compose -p prod up -d   # port 8000
-```
-
-Each project has its own named volume (`pgdata_dev`, `pgdata_test`, `pgdata_prod`) so databases are fully isolated.
-
----
-
-## How to Trigger Each Pipeline
-
-**Dev:** commit and push to `dev` branch — pipeline runs automatically.
-
-**Test:** merge `dev` into `test` and push:
-```bash
-git checkout test
-git merge dev
-git push origin test
-```
-
-**Prod:**
-1. Go to GitHub → Settings → Variables → set `IMAGE_VERSION` to the tested SHA
-2. Merge `test` into `prod` and push:
-```bash
-git checkout prod
-git merge test
-git push origin prod
-```
+Secrets:
+- `EC2_SSH_KEY` - private key to SSH into the server
+- `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` - for pushing/pulling images
+- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` - database config
+- `SECRET_KEY` - Django secret key
 
 ---
 
-## Project Structure
+## Docker Hub
 
-```
-book-shop-mohammad-laith/
-├── .github/
-│   └── workflows/
-│       ├── dev.yml        # Artifact-First pipeline
-│       ├── test.yml       # Image-First pipeline
-│       └── prod.yml       # Promotion-Only pipeline
-├── book-shop/
-│   ├── Dockerfile         # Builds from artifact.tar.gz
-│   ├── docker-compose.yml # Uses IMAGE_NAME:IMAGE_TAG env vars
-│   ├── requirements.txt
-│   └── manage.py
-├── artifacts/             # Versioned build artifacts (committed by CI)
-├── .gitignore
-└── README.md
-```
+Images are at `mhmdawad/book-shop`
+
+- dev pipeline pushes: `mhmdawad/book-shop:dev-<sha>`
+- test pipeline pushes: `mhmdawad/book-shop:<sha>`
+- prod pulls whatever tag is in IMAGE_VERSION (which will be one of the test tags)

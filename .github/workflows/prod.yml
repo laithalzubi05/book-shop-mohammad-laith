@@ -1,4 +1,4 @@
-name: Prod — Promotion-Only Pipeline
+name: prod pipeline
 
 on:
   push:
@@ -9,10 +9,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 1 — Read IMAGE_VERSION from repo variable (no build allowed)
-        run: echo "Deploying version ${{ vars.IMAGE_VERSION }}"
+      - name: Show version being deployed
+        run: echo "Deploying image version ${{ vars.IMAGE_VERSION }}"
 
-      - name: 2 — Deploy to EC2 by pulling existing image from Docker Hub
+      - name: Deploy to EC2
         run: |
           echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2_key.pem
           chmod 600 /tmp/ec2_key.pem
