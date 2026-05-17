@@ -1,0 +1,88 @@
+name: Test — Image-First Pipeline
+
+on:
+  push:
+    branches: [test]
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1 — Checkout source code (fresh, not from dev artifacts)
+        uses: actions/checkout@v4
+
+      - name: 2 — Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 3 — Install Python dependencies
+        run: |
+          cd book-shop
+          pip install -r requirements.txt
+
+      - name: 4 — Build fresh artifact from source
+        run: |
+          ARTIFACT="app-${{ github.sha }}.tar.gz"
+          tar -czf ${ARTIFACT} -C book-shop .
+          echo "ARTIFACT=${ARTIFACT}" >> $GITHUB_ENV
+
+      - name: 5 — Copy artifact into Docker build context
+        run: cp ${{ env.ARTIFACT }} book-shop/artifact.tar.gz
+
+      - name: 6 — Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 7 — Build Docker image from fresh artifact and push to Docker Hub
+        run: |
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/book-shop:${{ github.sha }}"
+          docker build -t ${IMAGE} book-shop/
+          docker push ${IMAGE}
+
+      - name: 8 — Deploy to EC2 by pulling from Docker Hub
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            mkdir -p /app/test
+            cd /app/test
+
+            echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}"              > .env
+            echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}"         >> .env
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
+            echo "POSTGRES_HOST=db"                                    >> .env
+            echo "SECRET_KEY=${{ secrets.SECRET_KEY }}"               >> .env
+            echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/book-shop" >> .env
+            echo "IMAGE_TAG=${{ github.sha }}"                        >> .env
+            echo "HOST_PORT=8002"                                      >> .env
+            echo "ALLOWED_HOSTS=*"                                     >> .env
+
+            cat > docker-compose.yml << 'EOF'
+            services:
+              db:
+                image: postgres:15
+                volumes:
+                  - pgdata_test:/var/lib/postgresql/data
+                env_file:
+                  - .env
+              backend:
+                image: ${IMAGE_NAME}:${IMAGE_TAG}
+                ports:
+                  - "8002:8000"
+                depends_on:
+                  - db
+                env_file:
+                  - .env
+            volumes:
+              pgdata_test:
+            EOF
+
+            docker compose -p test pull
+            docker compose -p test down
+            docker compose -p test up -d
