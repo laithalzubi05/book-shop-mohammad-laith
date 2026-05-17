@@ -44,45 +44,53 @@ jobs:
           docker push ${IMAGE}
 
       - name: 8 — Deploy to EC2 by pulling from Docker Hub
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ vars.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            mkdir -p /app/test
-            cd /app/test
+        run: |
+          echo "${{ secrets.EC2_SSH_KEY }}" > /tmp/ec2_key.pem
+          chmod 600 /tmp/ec2_key.pem
 
-            echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}"              > .env
-            echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}"         >> .env
-            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
-            echo "POSTGRES_HOST=db"                                    >> .env
-            echo "SECRET_KEY=${{ secrets.SECRET_KEY }}"               >> .env
-            echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/book-shop" >> .env
-            echo "IMAGE_TAG=${{ github.sha }}"                        >> .env
-            echo "HOST_PORT=8002"                                      >> .env
-            echo "ALLOWED_HOSTS=*"                                     >> .env
+          ssh -i /tmp/ec2_key.pem \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=30 \
+              ubuntu@${{ vars.EC2_HOST }} bash -s << 'ENDSSH'
+          set -e
+          sudo chown -R ubuntu:ubuntu /app 2>/dev/null || true
+          mkdir -p /app/test
+          cd /app/test
 
-            cat > docker-compose.yml << 'EOF'
-            services:
-              db:
-                image: postgres:15
-                volumes:
-                  - pgdata_test:/var/lib/postgresql/data
-                env_file:
-                  - .env
-              backend:
-                image: ${IMAGE_NAME}:${IMAGE_TAG}
-                ports:
-                  - "8002:8000"
-                depends_on:
-                  - db
-                env_file:
-                  - .env
-            volumes:
-              pgdata_test:
-            EOF
+          printf '%s\n' \
+            "POSTGRES_DB=${{ secrets.POSTGRES_DB }}" \
+            "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" \
+            "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" \
+            "POSTGRES_HOST=db" \
+            "SECRET_KEY=${{ secrets.SECRET_KEY }}" \
+            "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/book-shop" \
+            "IMAGE_TAG=${{ github.sha }}" \
+            "HOST_PORT=8002" \
+            "ALLOWED_HOSTS=*" > .env
 
-            docker-compose -p test pull
-            docker-compose -p test down
-            docker-compose -p test up -d
+          cat > docker-compose.yml << 'EOF'
+          services:
+            db:
+              image: postgres:15
+              volumes:
+                - pgdata_test:/var/lib/postgresql/data
+              env_file:
+                - .env
+            backend:
+              image: ${IMAGE_NAME}:${IMAGE_TAG}
+              ports:
+                - "8002:8000"
+              depends_on:
+                - db
+              env_file:
+                - .env
+          volumes:
+            pgdata_test:
+          EOF
+
+          docker-compose -p test pull
+          docker-compose -p test down
+          docker-compose -p test up -d
+          ENDSSH
+
+          rm -f /tmp/ec2_key.pem
