@@ -52,6 +52,6 @@ jobs:
               pgdata_prod:
             EOF
 
-            docker compose -p prod pull
-            docker compose -p prod down
-            docker compose -p prod up -d
+            docker-compose -p prod pull
+            docker-compose -p prod down
+            docker-compose -p prod up -d

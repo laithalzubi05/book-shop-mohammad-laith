@@ -83,6 +83,6 @@ jobs:
               pgdata_test:
             EOF
 
-            docker compose -p test pull
-            docker compose -p test down
-            docker compose -p test up -d
+            docker-compose -p test pull
+            docker-compose -p test down
+            docker-compose -p test up -d

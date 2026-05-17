@@ -98,6 +98,6 @@ jobs:
               pgdata_dev:
             EOF
 
-            docker compose -p dev pull
-            docker compose -p dev down
-            docker compose -p dev up -d
+            docker-compose -p dev pull
+            docker-compose -p dev down
+            docker-compose -p dev up -d
