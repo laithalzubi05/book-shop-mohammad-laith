@@ -2,15 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy the requirements file and install dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+COPY artifact.tar.gz /tmp/artifact.tar.gz
+RUN tar -xzf /tmp/artifact.tar.gz -C /app && rm /tmp/artifact.tar.gz
 
-# Copy the rest of the application code
-COPY . .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose port 8000
 EXPOSE 8000
 
-# Start the Django server
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
