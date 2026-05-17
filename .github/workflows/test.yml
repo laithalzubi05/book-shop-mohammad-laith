@@ -76,12 +76,18 @@ jobs:
                 - pgdata_test:/var/lib/postgresql/data
               env_file:
                 - .env
+              healthcheck:
+                test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+                interval: 5s
+                timeout: 5s
+                retries: 10
             backend:
               image: ${IMAGE_NAME}:${IMAGE_TAG}
               ports:
                 - "8002:8000"
               depends_on:
-                - db
+                db:
+                  condition: service_healthy
               env_file:
                 - .env
           volumes:
