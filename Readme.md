@@ -83,6 +83,16 @@ Secrets:
 
 ---
 
+## Group Size and Matching Choices
+
+We are a group of 2.
+
+Because of this we used Docker Hub as our registry instead of AWS ECR. The test pipeline pushes the image to Docker Hub and the prod pipeline pulls from there.
+
+Also since we are a group of 2, we run docker-compose commands directly on the EC2 server through SSH. We did not need to automate updating the docker-compose.yml file inside the pipeline (that is only needed for groups of 3).
+
+---
+
 ## Docker Hub
 
 Images are at `mhmdawad/book-shop`
