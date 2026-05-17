@@ -25,38 +25,40 @@ jobs:
           cd book-shop
           pip install -r requirements.txt
 
-      - name: 4 — Package artifact
+      - name: 4 — Sync with remote dev branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull origin dev --rebase
+
+      - name: 5 — Package artifact
         run: |
           mkdir -p artifacts
           ARTIFACT="app-${{ github.sha }}.tar.gz"
           tar -czf artifacts/${ARTIFACT} -C book-shop .
           echo "ARTIFACT=${ARTIFACT}" >> $GITHUB_ENV
 
-      - name: 5 — Commit artifact to repo
+      - name: 6 — Commit artifact to repo
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull origin dev --rebase
           git add artifacts/
-          git commit -m "ci: artifact for ${{ github.sha }}"
-          git push
+          git diff --cached --quiet && echo "Artifact already committed." || (git commit -m "ci: artifact for ${{ github.sha }}" && git push)
 
-      - name: 6 — Copy artifact into Docker build context
+      - name: 7 — Copy artifact into Docker build context
         run: cp artifacts/${{ env.ARTIFACT }} book-shop/artifact.tar.gz
 
-      - name: 7 — Log in to Docker Hub
+      - name: 8 — Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: 8 — Build Docker image from artifact and push
+      - name: 9 — Build Docker image from artifact and push
         run: |
           IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/book-shop:dev-${{ github.sha }}"
           docker build -t ${IMAGE} book-shop/
           docker push ${IMAGE}
 
-      - name: 9 — Deploy to EC2
+      - name: 10 — Deploy to EC2
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ vars.EC2_HOST }}
