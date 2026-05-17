@@ -1,0 +1,57 @@
+name: Prod — Promotion-Only Pipeline
+
+on:
+  push:
+    branches: [prod]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1 — Read IMAGE_VERSION from repo variable (no build allowed)
+        run: echo "Deploying version ${{ vars.IMAGE_VERSION }}"
+
+      - name: 2 — Deploy to EC2 by pulling existing image from Docker Hub
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ vars.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            mkdir -p /app/prod
+            cd /app/prod
+
+            echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}"              > .env
+            echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}"         >> .env
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
+            echo "POSTGRES_HOST=db"                                    >> .env
+            echo "SECRET_KEY=${{ secrets.SECRET_KEY }}"               >> .env
+            echo "IMAGE_NAME=${{ secrets.DOCKERHUB_USERNAME }}/book-shop" >> .env
+            echo "IMAGE_TAG=${{ vars.IMAGE_VERSION }}"                >> .env
+            echo "HOST_PORT=8000"                                      >> .env
+            echo "ALLOWED_HOSTS=*"                                     >> .env
+
+            cat > docker-compose.yml << 'EOF'
+            services:
+              db:
+                image: postgres:15
+                volumes:
+                  - pgdata_prod:/var/lib/postgresql/data
+                env_file:
+                  - .env
+              backend:
+                image: ${IMAGE_NAME}:${IMAGE_TAG}
+                ports:
+                  - "8000:8000"
+                depends_on:
+                  - db
+                env_file:
+                  - .env
+            volumes:
+              pgdata_prod:
+            EOF
+
+            docker compose -p prod pull
+            docker compose -p prod down
+            docker compose -p prod up -d
